@@ -1,7 +1,7 @@
 from redis import Redis
-
-from redis import Redis
 import time
+import pickle
+from collections import defaultdict
 
 class Connection:
 	def __init__(self,*args, **kwargs):
@@ -13,7 +13,7 @@ class Connection:
 		self._connection_pool = kwargs.get('connection_pool')
 		self.redis = Redis(host = self._host, port = self._port)
 		self._map_connections={}
-		self._map_connections['default'] = self._redis
+		self._map_connections['default'] = self.redis
 
 	def add_connection(self, name, redis_connection):
 		if name not in self._map_connections:
@@ -24,7 +24,7 @@ class Connection:
 			self.redis = self._map_connections[name]
 
 	def remove_connection(self, name):
-		if name in self._map_connections and name != 'default:
+		if name in self._map_connections and name != 'default':
 			self._map_connections.pop(name)
 			self.redis = self._map_connections['default']
 
@@ -35,6 +35,7 @@ class AbstractRedisStruct:
 			raise Exception("THis is not Connection class")
 		self._redis = redis_connect.redis
 		self._key=key
+		self._keydict = defaultdict()
 
 class RedisList(AbstractRedisStruct):
 	def __init__(self,redis_connect, key='mylist'):
@@ -74,12 +75,29 @@ class RedisList(AbstractRedisStruct):
 		self._key = kwargs.get('key')
 
 
-
+#Basic Task Queue
 class RedisQueue(AbstractRedisStruct):
-	def __init__(self, redis_connect, key='mylist'):
+	def __init__(self, redis_connect, key='mylist', maxsize=10000,**kwargs):
 		AbstractRedisStruct.__init__(self, redis_connect, key)
-	def put(self, key, value):
-		self._redis.lpush(key, value)
+		self.maxsize = maxsize
+		self.result = None
+		self.key = key
+		self.one_copy = kwargs.get('one_copy', False)
+	def put_task(self, key, value, *args,**kwargs):
+		serialize = pickle.dumps([value, args, kwargs])
+		self._redis.lpush(key, serialize)
 
-	def get(self, key):
-		return self._redis.lpop(key)
+	def pop_task(self, key):
+		data = self._redis.lpop(key)
+		if data != None:
+			function, args, kwargs = pickle.loads(data)
+			self.result = function(*args, **kwargs)
+
+	def set_maxsize(self, maxsize):
+		self.maxsize = maxsize
+
+	def result(self):
+		return self.result
+
+	def __eq__(self,name):
+		return self.key == name
