@@ -86,18 +86,23 @@ class RedisQueue(AbstractRedisStruct):
 	def put_task(self, key, value, *args,**kwargs):
 		serialize = pickle.dumps([value, args, kwargs])
 		self._redis.lpush(key, serialize)
+		self.results = []
 
 	def pop_task(self, key):
 		data = self._redis.lpop(key)
 		if data != None:
 			function, args, kwargs = pickle.loads(data)
 			self.result = function(*args, **kwargs)
+			self.results.append(self.result)
 
 	def set_maxsize(self, maxsize):
 		self.maxsize = maxsize
 
 	def result(self):
 		return self.result
+
+	def save(self):
+		pass
 
 	def __eq__(self,name):
 		return self.key == name
