@@ -3,6 +3,21 @@ import time
 import pickle
 from collections import defaultdict
 
+
+from redis import Redis
+import time
+import pickle
+from collections import defaultdict
+import threading
+from  multiprocessing import Queue
+
+from redis import Redis
+import time
+import pickle
+from collections import defaultdict
+import threading
+from  multiprocessing import Queue, Process
+
 class Connection:
 	def __init__(self,*args, **kwargs):
 		self._host = kwargs.get('host', 'localhost')
@@ -74,6 +89,19 @@ class RedisList(AbstractRedisStruct):
 	def setdefault(self, *args, **kwargs):
 		self._key = kwargs.get('key')
 
+class Task:
+	def __init__(self, key, task,*args,**kwargs):
+		self.key = key
+		self.task = task
+		self.timeout = kwargs.get('timeout',80)
+		self.priority = kwargs.get('priority')
+		self.subtask = kwargs.get('subtask')
+		self.async = kwargs.get('async', True)
+		self.args = kwargs.get('args')
+		self.kwargs = kwargs.get('kwargs')
+
+	def addpriority(self, priority):
+		self.priority = priority
 
 #Basic Task Queue
 class RedisQueue(AbstractRedisStruct):
@@ -82,27 +110,34 @@ class RedisQueue(AbstractRedisStruct):
 		self.maxsize = maxsize
 		self.result = None
 		self.key = key
+		self.priority = kwargs.get('priority')
 		self.one_copy = kwargs.get('one_copy', False)
 	def put_task(self, key, value, *args,**kwargs):
-		serialize = pickle.dumps([value, args, kwargs])
+		serialize = pickle.dumps([Task(key, value,args=args,kwargs=kwargs)])
 		self._redis.lpush(key, serialize)
-		self.results = []
 
-	def pop_task(self, key):
+	def pop_task(self, key, newprocess=False):
 		data = self._redis.lpop(key)
 		if data != None:
-			function, args, kwargs = pickle.loads(data)
-			self.result = function(*args, **kwargs)
-			self.results.append(self.result)
+			params = pickle.loads(data)
+			params = params[0]
+			if newprocess:
+				argsqueue = Queue()
+				argsqueue.put(params.args)
+				p = Process(target = params.task, args= (argsqueue,), kwargs=())
+				p.start()
+			else:
+				self.result = params.task(*params.args, **params.kwargs)
+			self._redis.lpush('results', self.result)
+
+	def setkey(self, newkey):
+		self.key = newkey
 
 	def set_maxsize(self, maxsize):
 		self.maxsize = maxsize
 
 	def result(self):
 		return self.result
-
-	def save(self):
-		pass
 
 	def __eq__(self,name):
 		return self.key == name
