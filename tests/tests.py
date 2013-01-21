@@ -6,6 +6,11 @@ class RedisQueueTest(unittest.TestCase):
         conn =rtagstore.Connection()
     def test_init(self):
         r = rtagstore.RedisQueue(rtagstore.Connection())
+    def test_pop(self):
+        def fun_func(param):
+            return param * 2
+        r = rtagstore.RedisQueue(rtagstore.Connection())
+        r.put(fun_func)
 
 
 if __name__ == '__main__':
