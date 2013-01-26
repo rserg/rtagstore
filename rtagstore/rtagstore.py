@@ -6,14 +6,6 @@ import threading
 from  multiprocessing import Queue, Process
 
 
-from redis import Redis
-import time
-import pickle
-from collections import defaultdict
-import threading
-from  multiprocessing import Queue, Process
-
-
 class Connection:
     def __init__(self, *args, **kwargs):
         self._host = kwargs.get('host', 'localhost')
@@ -34,10 +26,11 @@ class Connection:
         if name in self._map_connections:
             self.redis = self._map_connections[name]
 
-    def remove_connection(self, name):
-        if name in self._map_connections and name != 'default':
+    def remove_connection(self, name, replace_name='default'):
+        if name in self._map_connections and name != replace_name:
             self._map_connections.pop(name)
-            self.redis = self._map_connections['default']
+            self.redis = self._map_connections[replace_name]
+
 
 
 class AbstractRedisStruct:
@@ -88,19 +81,37 @@ class RedisList(AbstractRedisStruct):
         self._key = kwargs.get('key')
 
 
+'''
+redis.tag("foo","bar","foobar")
+'''
+class TagStore:
+    def __init__(self, redis,listname='default'):
+        self._redis = redis
+        self.listname = listname
+    def tag(self, **kwargs):
+        self._redis.sadd(self.listname, kwargs)
+
+
 class Task:
     def __init__(self, key, task, *args, **kwargs):
         self.key = key
         self.task = task
         self.timeout = kwargs.get('timeout', 80)
         self.priority = kwargs.get('priority')
-        self.subtask = kwargs.get('subtask')
+        self.subtask = kwargs.get('subtask',[])
         self.async = kwargs.get('async', True)
         self.args = kwargs.get('args')
         self.kwargs = kwargs.get('kwargs')
+        self.status = None
 
     def addpriority(self, priority):
         self.priority = priority
+
+    def add_subtask(self,subtask):
+        self.subtask.append(subtask)
+
+    def statusq(self):
+        return self.status
 
 #Basic Task Queue
 
@@ -117,7 +128,9 @@ class RedisQueue(AbstractRedisStruct):
     def put_task(self, value, *args, **kwargs):
         if self.maxsize > self.size():
             key = kwargs.get('key', self.key)
-            serialize = pickle.dumps([Task(key, value, args=args, kwargs=kwargs)])
+            priority = kwargs.get('priority')
+            serialize = pickle.dumps([Task(key, value, args=args, kwargs=kwargs,
+                priority = priority)])
             self._redis.lpush(key, serialize)
 
     def pop_task(self, newprocess=False, **kwargs):
@@ -131,6 +144,7 @@ class RedisQueue(AbstractRedisStruct):
             if newprocess:
                 argsqueue = Queue()
                 argsqueue.put(params.args)
+                argsqueue.put(params.kwargs)
                 p = Process(target=params.task, args=(argsqueue,), kwargs=params.kwargs)
                 p.start()
             else:
@@ -148,5 +162,16 @@ class RedisQueue(AbstractRedisStruct):
     def size(self):
         return self._redis.llen(self.key)
 
+    def addtag(self,**kwargs):
+        TagStore(self._redis).tag(funtug=kwargs)
+
     def __eq__(self, name):
         return self.key == name
+
+
+def test_func(*args, **kwargs):
+    print(kwargs)
+    return kwargs.get('foobar')
+
+def fun(**kwargs):
+    return kwargs
