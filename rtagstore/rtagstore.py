@@ -92,6 +92,7 @@ class TagStore:
         self._redis.sadd(self.listname, kwargs)
 
 
+
 class Task:
     def __init__(self, key, task, *args, **kwargs):
         self.key = key
@@ -122,21 +123,26 @@ class RedisQueue(AbstractRedisStruct):
         self.maxsize = maxsize
         self.result = None
         self.key = key
+        self.keys=set()
         self.priority = kwargs.get('priority')
         self.one_copy = kwargs.get('one_copy', False)
 
     def put_task(self, value, *args, **kwargs):
         if self.maxsize > self.size():
             key = kwargs.get('key', self.key)
+            self.keys.add(key)
             priority = kwargs.get('priority')
             serialize = pickle.dumps([Task(key, value, args=args, kwargs=kwargs,
                 priority = priority)])
             self._redis.lpush(key, serialize)
+    def put_single_task(self, name, key, value):
+        self.result = self.execute_command('HGET', 'name', self.value)
 
     def pop_task(self, newprocess=False, **kwargs):
         key = kwargs.get('key', self.key)
         #In the exception case put in queue again
         exp = kwargs.get('backput', False)
+        issort = kwargs.get('issort')
         data = self._redis.lpop(key)
         if data != None:
             params = pickle.loads(data)
@@ -149,6 +155,8 @@ class RedisQueue(AbstractRedisStruct):
                 p.start()
             else:
                 self.result = params.task(*params.args, **params.kwargs)
+    def pop_single_task(self, name,key,value):
+        return self._redis.execute_command('HGET', 'namea', 'default')
 
     def setkey(self, newkey):
         self.key = newkey
@@ -164,6 +172,14 @@ class RedisQueue(AbstractRedisStruct):
 
     def addtag(self,**kwargs):
         TagStore(self._redis).tag(funtug=kwargs)
+
+    def clear(self,**kwargs):
+        clear_all = kwargs.get('all', False)
+        if clear_all:
+            for keys in self.keys: self._redis.delete(keys)
+            self.keys.clear()
+        else:
+            self._redis.delete(kwargs.get('key'))
 
     def __eq__(self, name):
         return self.key == name
