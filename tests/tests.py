@@ -11,6 +11,13 @@ class RedisQueueTest(unittest.TestCase):
             return param * 2
         r = rtagstore.RedisQueue(rtagstore.Connection())
         r.put(fun_func)
+    def test_tags(self):
+        lis = RedisList(Connection())
+        lis.tag('mylist', 'nice', 'good')
+
+    def test_union(self):
+        lis = RedisList(Connection())
+        lis.union_tags('mylist','mylist')
 
 
 if __name__ == '__main__':

@@ -6,6 +6,14 @@ import threading
 from  multiprocessing import Queue, Process
 
 
+from redis import Redis
+import time
+import pickle
+from collections import defaultdict
+import threading
+from  multiprocessing import Queue, Process
+
+
 class Connection:
     def __init__(self, *args, **kwargs):
         self._host = kwargs.get('host', 'localhost')
@@ -36,7 +44,7 @@ class Connection:
 class AbstractRedisStruct:
     def __init__(self, redis_connect, key='mylist'):
         if(not isinstance(redis_connect, Connection)):
-            raise Exception("THis is not Connection class")
+            raise Exception("This is not Connection class")
         self._redis = redis_connect.redis
         self._key = key
         self._keydict = defaultdict()
@@ -44,12 +52,7 @@ class AbstractRedisStruct:
 
 class RedisList(AbstractRedisStruct):
     def __init__(self, redis_connect, key='mylist'):
-        AbstractRedisStruct.__init__(redis_connect, key)
-        if(not isinstance(redis_connect, Connection)):
-            raise Exception("THis is not Connection class")
-        self._redis = redis_connect.redis
-        self._key = 'mylist'
-
+        AbstractRedisStruct.__init__(self,redis_connect,key)
     def push(self, key, value):
         self._redis.rpush(key, value)
 
@@ -63,10 +66,17 @@ class RedisList(AbstractRedisStruct):
     def getSession(self, session):
         print(self._redis.hgetall(session))
 
-    def tag(self, _key='mylist'):
-        if _key != None:
-            self._key = _key
+    def tag(self, _key,*args):
+        if _key != None:self._key = _key
+        for arg in args:
+            self._redis.sadd(self._key, arg)
         return self._redis.smembers(self._key)
+
+    def remove_tag(self, _key='mylist',*args):
+        if _key !=  None: self._key = _key
+
+    def union_tags(self, key1, key2):
+        self._redis.sunion(key1, key2)
 
     def __getitem__(self, key):
         pass
