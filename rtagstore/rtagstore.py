@@ -12,7 +12,7 @@ import pickle
 from collections import defaultdict
 import threading
 from  multiprocessing import Queue, Process
-
+import heapq
 
 class Connection:
     def __init__(self, *args, **kwargs):
@@ -48,6 +48,12 @@ class AbstractRedisStruct:
         self._redis = redis_connect.redis
         self._key = key
         self._keydict = defaultdict()
+
+    def getKey(self):
+        return self._key
+
+    def getKeyDict(self):
+        return self._keydict
 
 
 class RedisList(AbstractRedisStruct):
@@ -112,6 +118,7 @@ class Task:
         self.subtask = kwargs.get('subtask',[])
         self.async = kwargs.get('async', True)
         self.args = kwargs.get('args')
+        self.arguments = kwargs.get('arguments')
         self.kwargs = kwargs.get('kwargs')
         self.status = None
 
@@ -124,11 +131,16 @@ class Task:
     def statusq(self):
         return self.status
 
+    def load_task(self):
+        for times in self.arguments:
+            for newargs in times:
+                self.task(newargs)
+
 #Basic Task Queue
 
 
 class RedisQueue(AbstractRedisStruct):
-    def __init__(self, redis_connect, key='mylist', maxsize=10000, **kwargs):
+    def __init__(self, redis_connect, key='mylista', maxsize=10000, **kwargs):
         AbstractRedisStruct.__init__(self, redis_connect, key)
         self.maxsize = maxsize
         self.result = None
@@ -137,18 +149,37 @@ class RedisQueue(AbstractRedisStruct):
         self.priority = kwargs.get('priority')
         self.one_copy = kwargs.get('one_copy', False)
 
+
+    '''
+    optional parameters
+    key - defualt key for
+    priority - in this case
+    arguments - multiply agruments for call one function
+             example:
+             def foo(bar):
+                return bar
+
+             put_task(foo, arguments=[10,25,30])
+
+    '''
     def put_task(self, value, *args, **kwargs):
-        if self.maxsize > self.size():
-            key = kwargs.get('key', self.key)
-            self.keys.add(key)
-            priority = kwargs.get('priority')
-            serialize = pickle.dumps([Task(key, value, args=args, kwargs=kwargs,
-                priority = priority)])
-            self._redis.lpush(key, serialize)
+        key = kwargs.get('key', self.key)
+        arguments = sorted(
+            kwargs.get('arguments',[]),
+            key=lambda x:x)
+        arguments = PriorityArguments(kwargs.get('arguments',[])).valus
+        priority = kwargs.get('priority')
+        serialize = pickle.dumps([Task(key, value, args=args, kwargs=kwargs,
+                priority = priority, arguments=arguments)])
+
+        self._redis.lpush(key, serialize)
+        self.keys.add(key)
+
     def put_single_task(self, name, key, value):
         self.result = self.execute_command('HGET', 'name', self.value)
 
     def pop_task(self, newprocess=False, **kwargs):
+        #Default key
         key = kwargs.get('key', self.key)
         #In the exception case put in queue again
         exp = kwargs.get('backput', False)
@@ -164,7 +195,7 @@ class RedisQueue(AbstractRedisStruct):
                 p = Process(target=params.task, args=(argsqueue,), kwargs=params.kwargs)
                 p.start()
             else:
-                self.result = params.task(*params.args, **params.kwargs)
+                self.result = params.load_task()
     def pop_single_task(self, name,key,value):
         return self._redis.execute_command('HGET', 'namea', 'default')
 
@@ -194,10 +225,22 @@ class RedisQueue(AbstractRedisStruct):
     def __eq__(self, name):
         return self.key == name
 
+'''params - few arguments in function
+optional sortfunc - sorting function for arguments
+'''
+class PriorityArguments:
+    def __init__(self, params,**kwargs):
+        self.params = params
+        self.sortfunc = kwargs.get('sortfunc', lambda x:x)
+        self.valus = self._show_values()
+        self.keys = self._show_keys()
+        self.summary = self.keys, self.valus
 
-def test_func(*args, **kwargs):
-    print(kwargs)
-    return kwargs.get('foobar')
+    def _show_keys(self):
+        return self.params.keys()
 
-def fun(**kwargs):
-    return kwargs
+    def _show_values(self):
+        newvalues=[]
+        for keys in self._show_keys():
+            newvalues.append(sorted(self.params[keys], key=self.sortfunc(self.sortfunc)))
+        return newvalues
