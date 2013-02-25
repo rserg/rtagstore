@@ -4,14 +4,6 @@ import pickle
 from collections import defaultdict
 import threading
 from  multiprocessing import Queue, Process
-
-
-from redis import Redis
-import time
-import pickle
-from collections import defaultdict
-import threading
-from  multiprocessing import Queue, Process
 import heapq
 
 class Connection:
@@ -164,10 +156,8 @@ class RedisQueue(AbstractRedisStruct):
     '''
     def put_task(self, value, *args, **kwargs):
         key = kwargs.get('key', self.key)
-        arguments = sorted(
-            kwargs.get('arguments',[]),
-            key=lambda x:x)
-        arguments = PriorityArguments(kwargs.get('arguments',[])).valus
+        params = kwargs.get('arguments',[])
+        arguments = PriorityArguments(params,**kwargs).valus
         priority = kwargs.get('priority')
         serialize = pickle.dumps([Task(key, value, args=args, kwargs=kwargs,
                 priority = priority, arguments=arguments)])
@@ -177,6 +167,10 @@ class RedisQueue(AbstractRedisStruct):
 
     def put_single_task(self, name, key, value):
         self.result = self.execute_command('HGET', 'name', self.value)
+
+    '''Exctract stored elements in redis
+    newprocess - in this case new element/function will be launched in the new thread
+    '''
 
     def pop_task(self, newprocess=False, **kwargs):
         #Default key
@@ -196,6 +190,26 @@ class RedisQueue(AbstractRedisStruct):
                 p.start()
             else:
                 self.result = params.load_task()
+
+    '''A function call in the case with few parameters for task
+    put_task(test_func, arguments = {'foobar':[40,10,20]})
+    pop_tasks()
+    return value: None
+    '''
+    def pop_tasks(self,**kwargs):
+        params = self._help_pop_task(key)
+        params.load_task()
+
+    '''A function is help function for pop task which return extract
+    parameter from redis store
+    '''
+    def _help_pop_task(self, key):
+        data = self._redis.lpop(key)
+        if data != None:
+            params = pickle.loads(data)
+            params = params[0]
+            return params
+
     def pop_single_task(self, name,key,value):
         return self._redis.execute_command('HGET', 'namea', 'default')
 
@@ -229,8 +243,10 @@ class RedisQueue(AbstractRedisStruct):
 optional sortfunc - sorting function for arguments
 '''
 class PriorityArguments:
-    def __init__(self, params,**kwargs):
+    def __init__(self, params, **kwargs):
         self.params = params
+        self.issort = kwargs.get('issort')
+        self.arguments = kwargs.get('arguments')
         self.sortfunc = kwargs.get('sortfunc', lambda x:x)
         self.valus = self._show_values()
         self.keys = self._show_keys()
@@ -242,5 +258,10 @@ class PriorityArguments:
     def _show_values(self):
         newvalues=[]
         for keys in self._show_keys():
-            newvalues.append(sorted(self.params[keys], key=self.sortfunc(self.sortfunc)))
+            newvalues.append(self._argsort(keys))
+        print(newvalues)
         return newvalues
+
+    def _argsort(self, keys):
+        if(self.issort): return sorted(self.params[keys], key=self.sortfunc(self.sortfunc))
+        else: return self.params[keys]
